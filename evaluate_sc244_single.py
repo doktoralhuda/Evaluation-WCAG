@@ -8,7 +8,7 @@ Dan Repositori Gist Resmi Penulis (Footnote 23: https://gist.github.com/juananpe
 Karakteristik Skrip:
 1. Mengevaluasi 1 berkas kasus uji HTML secara mandiri dengan alur step-by-step yang transparan.
 2. Menggunakan ChatAnthropic(model="claude-sonnet-4-5-20250929", temperature=0) sesuai kode Gist resmi artikel (Footnote 23).
-3. Tahap 1: Ekstraksi tautan HTML dilakukan oleh LLM melalui prompt (Base Prompt dan Ad-hoc Prompt).
+3. Tahap 1: Ekstraksi tautan HTML dilakukan oleh LLM melalui Base Prompt standar.
 4. Tahap 2: Peringkasan & Penilaian Kesesuaian Semantik via LangChain Agent yang menjelajahi halaman web sasaran secara otonom.
 5. Tahap 3: Menampilkan keputusan akhir: PASSED, FAILED, atau FAILED*.
 """
@@ -36,13 +36,7 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 # KONFIGURASI EVALUASI KASUS TUNGGAL
 # ==============================================================================
 # 1. Path berkas HTML kasus uji yang ingin dievaluasi
-HTML_FILE_PATH = "testcases/sc244/selected/a8cc66de4d60e34c7ee0d09fd6ab965ac23d9b4f.html"
-
-# 2. Mode Ad-hoc:
-#    - False: Base Prompt LLM hanya mencari elemen jangkar <a> standar.
-#             (Kasus non-standar seperti ARIA labelledby/label, <area> map, atau button redirect akan berstatus FAILED*).
-#    - True : Mode modifikasi ad-hoc prompt (Seksi 5 Hlm. 12-13 artikel ilmiah).
-USE_ADHOC = False
+HTML_FILE_PATH = os.path.join(BASE_DIR, "testcases/sc244/selected/a8cc66de4d60e34c7ee0d09fd6ab965ac23d9b4f.html").replace("\\", "/")
 
 # Ambang batas kesesuaian semantik untuk lulus (Seksi 3.3.1 & 3.3.2 artikel: 0.50)
 THRESHOLD = 0.50
@@ -52,7 +46,7 @@ THRESHOLD = 0.50
 # TEMPLATE PROMPT LLM GLOBAL
 # ==============================================================================
 
-# 1. Prompt Ekstraksi Tautan & Teks Deskripsi (Mendukung Sisipan Notice Ad-hoc) (Sesuai Seksi 3.3.2 & 5 Artikel)
+# 1. Prompt Ekstraksi Tautan & Teks Deskripsi (Base Prompt Standar) (Sesuai Seksi 3.3.2 Artikel)
 EXTRACTOR_TEMPLATE = """Given the following HTML code:
 
 ```html
@@ -64,39 +58,12 @@ Rules for link description:
 1. Extract the text directly inside the <a> tag (or alt/title attribute of an enclosed <img>). Do not look up references outside the tag.
 2. If the anchor text is only a format or generic term, combine it with its link context. Otherwise, use only the anchor text itself.
 
-{special_instruction}
-
 Write your answer in a single JSON object with two keys: link_url (string or null) and link_text (string or null). If multiple links exist, extract the first one as a single JSON object.
 """
-
-# alternatif:
-# 2. If the anchor text is only a format or generic term, combine it with its parent context (heading, list, or table). Otherwise, use only the anchor text itself.
-
-# prompt ekstraktor di bawah dapat menghasilkan akurasi 90%
-# EXTRACTOR_TEMPLATE = """Given the following HTML code:
-
-# ```html
-# {html_code}
-# ```
-
-# Extract the link destination URL from the <a> tag href attribute and its link description.
-# Rules for link description:
-# 1. Extract the text directly inside the <a> tag (or alt/title of any enclosed <img>).
-# 2. Only if the anchor text is merely a generic file format name (e.g. 'HTML', 'EPUB', 'Plain text', 'PDF'), combine it with its parent heading/list/table context (e.g. 'Ulysses - HTML'). For all other descriptive links (e.g. 'Contact us', 'About us', 'Call us', etc.), use the anchor text itself directly without prepending surrounding sentence text.
-
-# {special_instruction}
-
-# Write your answer in a single JSON object with two keys: link_url (string or null) and link_text (string or null). If multiple links exist, extract the first one as a single JSON object.
-# """
 
 # 2. Prompt Peringkasan & Penilaian Kesesuaian Semantik untuk LangChain Agent
 # (Persis sesuai Seksi 3.3.2 Halaman 8 & Gist Footnote 23: check-2-4-4.py)
 SUITABILITY_AGENT_PROMPT = """Browse to {url} and summarize the content in one sentence. Then, tell me on a scale from 0 to 1 how suitable it would be to add a link to that website using this text for the anchor: '{link_text}'. Write your answer as a JSON object with the keys 'summary' and 'suitability'. For example {{"summary": "summary of the page", "suitability": a float number between 0 and 1}}"""
-
-# 3. Prompt Khusus Ad-hoc Evaluasi Tombol Pengalihan (Button Redirection role='link')
-# (Persis sesuai kutipan metodologi Seksi 5 Halaman 13 Artikel Ilmiah:
-#  "browse to this page ... and tell me if the text that describes where I will go if I click the button is right")
-ADHOC_BUTTON_PROMPT = """browse to this page {target_page} and tell me if the text that describes where I will go if I click the button is right"""
 
 
 # ==============================================================================
@@ -119,6 +86,7 @@ def parse_extractor_json(response_str: str):
             "link_url": url_m.group(1) if (url_m and url_m.group(1)) else None,
             "link_text": text_m.group(1) if (text_m and text_m.group(1)) else None
         }
+
 
 # ==============================================================================
 # PARSING OUTPUT JSON SUITABILITY AGENT (PERINGKASAN & KESESUAIAN)
@@ -144,61 +112,6 @@ def parse_suitability_json(response_str: str):
             "summary": summary_m.group(1) if summary_m else "",
             "suitability": score_val
         }
-
-
-# ==============================================================================
-# PENENTUAN SKOR KESESUAIAN AD-HOC BUTTON (0 ATAU 1 DARI RESPON TEKS MODEL)
-# ==============================================================================
-def determine_button_suitability_score(response_text: str) -> float:
-    """
-    Menentukan skor suitability (0.0 atau 1.0) secara terprogram dari respon teks model
-    untuk prompt ad-hoc button redirection (Seksi 5 Hlm. 13 artikel ilmiah) berdasarkan
-    indikator positif/negatif yang paling pertama kali muncul (first occurrence).
-    """
-    text_lower = response_text.lower().strip()
-
-    # Bersihkan pengulangan klausa prompt kondisional jika ada (misal: 'if/whether the text ... is right')
-    cleaned_target = re.sub(r'\b(?:if|whether)\s+the\s+text\b[^\n.:]*?\b(?:is\s+)?right\b', '', text_lower)
-
-    # Indikator negatif (ketidaksesuaian/kesalahan deskripsi tujuan tombol)
-    negative_patterns = [
-        r'\b(?:is\s+)?not\s+(?:right|correct|accurate|descriptive)\b',
-        r'\bno\b',
-        r'\bincorrect\b',
-        r'\bplaceholder\b',
-        r'\bpoor accessibility\b',
-        r'\bdoes\s+not\s+(?:describe|indicate|tell)\b',
-        r'\bnot\s+describe\b',
-        r'\bwouldn\'t\s+know\b'
-    ]
-
-    # Indikator positif (kesesuaian deskripsi tujuan tombol)
-    positive_patterns = [
-        r'\byes\b',
-        r'(?<!not\s)(?<!not\sbe\s)\b(?:the\s+text\s+)?(?:is\s+)?(?:correct|accurate)\b',
-        r'(?<!not\s)(?<!not\sbe\s)\b(?:the\s+text\s+is|it\s+is)\s+right\b',
-        r'(?<!not\s)\b(?:is\s+)?(?:the\s+)?right\s+(?:description|destination|text)\b',
-        r'\bcorrectly\s+(?:indicates?|identifies?|describes?)\b',
-        r'\baccurately\s+describes?\b'
-    ]
-
-    # Cari posisi kemunculan pertama masing-masing kategori
-    first_neg_idx = min(
-        [m.start() for pat in negative_patterns for m in [re.search(pat, cleaned_target)] if m],
-        default=float('inf')
-    )
-    first_pos_idx = min(
-        [m.start() for pat in positive_patterns for m in [re.search(pat, cleaned_target)] if m],
-        default=float('inf')
-    )
-
-    # Keputusan berdasarkan indikator yang lebih dahulu muncul
-    if first_pos_idx < first_neg_idx:
-        return 1.0
-    elif first_neg_idx < first_pos_idx:
-        return 0.0
-
-    return 0.0
 
 
 # ==============================================================================
@@ -301,7 +214,7 @@ def init_llm_and_agent():
 
         extractor_prompt = PromptTemplate(
             template=EXTRACTOR_TEMPLATE,
-            input_variables=['html_code', 'special_instruction']
+            input_variables=['html_code']
         )
         EXTRACTOR_CHAIN = LLMChain(prompt=extractor_prompt, llm=llm)
 
@@ -321,15 +234,14 @@ def init_llm_and_agent():
 # ==============================================================================
 # PIPELINE EKSEKUSI UTAMA EVALUASI TUNGGAL BERBASIS LLM
 # ==============================================================================
-def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE_ADHOC):
+def run_single_evaluation(file_path: str = HTML_FILE_PATH):
     print("=" * 80)
     print("EVALUASI KASUS TUNGGAL WCAG SC 2.4.4 (EKSTRAKTOR BERBASIS PROMPT LLM)")
     print("=" * 80)
     print(f"Target File : {file_path}")
-    print(f"Mode Ad-hoc : {'AKTIF (Modifikasi Prompt Ad-hoc)' if use_adhoc else 'NON-AKTIF'}")
 
     result = {
-        "prompt_type": None,
+        "prompt_type": "Base LLM Prompt",
         "ext_status": None,
         "link_url": None,
         "link_text": None,
@@ -359,41 +271,10 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
     for line in html_content.strip().splitlines():
         print(f"  | {line}")
 
-    # Penentuan Petunjuk Khusus / Special Instruction (Seksi 5 Hlm. 12-13 Artikel Ilmiah)
-    if not use_adhoc:
-        prompt_type = "Base LLM Prompt"
-        special_instruction = ""
-    else:
-        # Sisipan instruksi khusus ad-hoc prompt untuk elemen non-standar:
-        if "aria-labelledby" in html_content or "aria-label" in html_content:
-            prompt_type = "Ad-hoc Prompt (Link labelled by ARIA)"
-            special_instruction = (
-                "Notice that the link description is labelled by ARIA attributes (such as aria-label or aria-labelledby "
-                "associating the link with a label element). Extract the accessible name/label as the link_text.\n"
-            )
-        elif "<area" in html_content or "usemap" in html_content:
-            prompt_type = "Ad-hoc Prompt (Client-side image map <area>)"
-            special_instruction = (
-                "Notice that the link is defined using a client-side image map (<map> and <area> element). "
-                "Extract the area href as link_url and alt text as link_text.\n"
-            )
-        elif "<button" in html_content or "role=\"link\"" in html_content or "window.location" in html_content:
-            # Penanganan Kasus Khusus Button Redirection (Seksi 5 Hlm. 13 Artikel Ilmiah):
-            # Pada artikel ilmiah aslinya, penulis menggunakan bantuan OpenInterpreter + GPT-4 secara terpisah
-            # dengan prompt untuk mengecek arah navigasi tombol ("tell me if the text that describes where I will go if I click the button is right").
-            # Di sini kita mereplikasi metodologi tersebut secara otomatis menggunakan suitability_agent dengan prompt ADHOC_BUTTON_PROMPT di Tahap 2.
-            prompt_type = "Ad-hoc Prompt (Button redirection role='link')"
-            special_instruction = (
-                "Notice that the redirection to the link is triggered by a button element (e.g. role='link' or onclick redirection). "
-                "Extract the redirection destination URL as link_url and the button text as link_text.\n"
-            )
-        else:
-            prompt_type = "Standard Prompt"
-            special_instruction = ""
+    prompt_type = "Base LLM Prompt"
 
     raw_extractor_output = extractor_chain.run({
-        'html_code': html_content,
-        'special_instruction': special_instruction
+        'html_code': html_content
     })
 
     print("\nRespon Mentah LLM:")
@@ -425,7 +306,6 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
         print("Penjelasan      : Elemen tautan/deskripsi tidak dapat diekstrak oleh Base Prompt karena")
         print("                  menggunakan pola non-standar (misalnya ARIA label, <area> image map,")
         print("                  atau tombol pengalihan <button role='link'>).")
-        print("                  Aktifkan 'USE_ADHOC = True' atau gunakan opsi '--adhoc' untuk prompt modifikasi.")
         print("=" * 80)
         result["eval_status"] = "FAILED*"
         return result
@@ -438,40 +318,20 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
     print(f"Target URL            : {link_url}")
     print(f"Deskripsi Tautan Uji  : \"{link_text}\"")
 
-    # Penentuan Alur Evaluasi Tahap 2:
-    # 1. Kasus Ad-hoc Button Redirection (Seksi 5 Hlm. 13 Artikel Ilmiah):
-    #    Menggunakan suitability_agent dengan prompt halaman target langsung sesuai contoh artikel ilmiah,
-    #    dan skor ditentukan sendiri (0 atau 1) dari respon model.
-    # 2. Kasus Standar (Tautan/Anchor, ARIA, Image Map):
-    #    Menggunakan suitability_agent dengan SUITABILITY_AGENT_PROMPT.
-    if use_adhoc and prompt_type == "Ad-hoc Prompt (Button redirection role='link')":
-        # Menggunakan berkas kasus uji lokal langsung
-        target_page = file_path.replace("\\", "/")
-        agent_input = ADHOC_BUTTON_PROMPT.format(target_page=target_page)
+    agent_input = SUITABILITY_AGENT_PROMPT.format(
+        url=link_url,
+        link_text=link_text
+    )
 
-        print("\nMenjalankan Agent (Agent akan otomatis menggunakan tool 'browse_webpage' untuk membaca konten)...")
-        raw_suitability_output = suitability_agent.run(agent_input)
+    print("\nMenjalankan Agent (Agent akan otomatis menggunakan tool 'browse_webpage' untuk membaca konten)...")
+    raw_suitability_output = suitability_agent.run(agent_input)
 
-        print("\nRespon Mentah Agent:")
-        print(raw_suitability_output.strip())
+    print("\nRespon Mentah Agent:")
+    print(raw_suitability_output.strip())
 
-        suitability_score = determine_button_suitability_score(raw_suitability_output)
-        page_summary = raw_suitability_output.strip().replace("\n", " ")[:200]
-    else:
-        agent_input = SUITABILITY_AGENT_PROMPT.format(
-            url=link_url,
-            link_text=link_text
-        )
-
-        print("\nMenjalankan Agent (Agent akan otomatis menggunakan tool 'browse_webpage' untuk membaca konten)...")
-        raw_suitability_output = suitability_agent.run(agent_input)
-
-        print("\nRespon Mentah Agent:")
-        print(raw_suitability_output.strip())
-
-        parsed_suitability = parse_suitability_json(raw_suitability_output)
-        page_summary = parsed_suitability.get("summary", "")
-        suitability_score = float(parsed_suitability.get("suitability", 0.0))
+    parsed_suitability = parse_suitability_json(raw_suitability_output)
+    page_summary = parsed_suitability.get("summary", "")
+    suitability_score = float(parsed_suitability.get("suitability", 0.0))
 
     result["page_summary"] = page_summary
     result["suitability_score"] = suitability_score
@@ -505,15 +365,10 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
 
 
 if __name__ == "__main__":
-    # Penggunaan via Terminal:
-    # python evaluate_sc244_single.py testcases/sc244/selected/a8cc66de4d60e34c7ee0d09fd6ab965ac23d9b4f.html
-    # python evaluate_sc244_single.py testcases/sc244/selected/a8cc66de4d60e34c7ee0d09fd6ab965ac23d9b4f.html --adhoc
     target_path = HTML_FILE_PATH
-    adhoc_flag = USE_ADHOC
 
     if len(sys.argv) > 1:
         target_path = sys.argv[1]
-    if "--adhoc" in sys.argv:
-        adhoc_flag = True
 
-    run_single_evaluation(file_path=target_path, use_adhoc=adhoc_flag)
+    run_single_evaluation(file_path=target_path)
+

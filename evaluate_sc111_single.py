@@ -12,7 +12,7 @@ Dan Repositori & Model Resmi Penulis:
 Karakteristik Skrip:
 1. Mengevaluasi 1 berkas kasus uji HTML secara mandiri dengan alur step-by-step yang transparan.
 2. Menggunakan OpenAI(model="gpt-5.6-terra", temperature=0) via openai_patch (pengganti resmi gpt-3.5-turbo-instruct yang telah dideprecate).
-3. Tahap 1: Ekstraksi gambar dan teks alternatif HTML dilakukan oleh LLM melalui prompt (Base Prompt dan Ad-hoc Prompt).
+3. Tahap 1: Ekstraksi gambar dan teks alternatif HTML dilakukan oleh LLM melalui Base Prompt standar.
 4. Tahap 2: Ekstraksi deskripsi visual via VLM (BLIP / Pix2Struct) dan Penilaian Kemiripan Semantik via LangChain.
 5. Tahap 3: Menampilkan keputusan akhir: PASSED, FAILED, atau FAILED*.
 """
@@ -48,13 +48,7 @@ device = "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_avail
 # KONFIGURASI EVALUASI KASUS TUNGGAL
 # ==============================================================================
 # 1. Path berkas HTML kasus uji yang ingin dievaluasi
-HTML_FILE_PATH = "testcases/sc111/selected/8c29bcb24ac0f448846a2ffdad4c9693d5aef8c6.html"
-
-# 2. Mode Ad-hoc:
-#    - False: Base Prompt LLM hanya mencari tag <img> / <input> standar.
-#             (Kasus non-standar CSS bg / <object> akan menghasilkan FAILED*).
-#    - True : Mode modifikasi ad-hoc prompt (Seksi 5 Hlm. 12-13 artikel ilmiah).
-USE_ADHOC = False
+HTML_FILE_PATH = os.path.join(BASE_DIR, "testcases/sc111/selected/8c29bcb24ac0f448846a2ffdad4c9693d5aef8c6.html").replace("\\", "/")
 
 # Ambang batas kemiripan semantik untuk lulus (Seksi 3.3.1 artikel: 0.50)
 THRESHOLD = 0.50
@@ -67,7 +61,7 @@ ASSETS_DIR = os.path.join(BASE_DIR, "test-assets")
 # TEMPLATE PROMPT LLM GLOBAL
 # ==============================================================================
 
-# 1. Prompt Ekstraksi Gambar & Teks Alternatif (Mendukung Sisipan Notice Ad-hoc) (Sesuai Seksi 3.3.1 & 5 Artikel)
+# 1. Prompt Ekstraksi Gambar & Teks Alternatif (Base LLM Prompt Standar) (Sesuai Seksi 3.3.1 Artikel)
 EXTRACTOR_TEMPLATE = """Given the following HTML code:
 
 ```html
@@ -75,7 +69,6 @@ EXTRACTOR_TEMPLATE = """Given the following HTML code:
 ```
 
 Extract image src and alternative text from the tag img or input element.
-{special_instruction}
 
 Write your answer in a JSON object with two keys: image_src (string or null) and alt_text (string or null).
 """
@@ -122,7 +115,7 @@ def init_llm_chains():
 
         extractor_prompt = PromptTemplate(
             template=EXTRACTOR_TEMPLATE,
-            input_variables=['html_code', 'special_instruction']
+            input_variables=['html_code']
         )
         EXTRACTOR_CHAIN = LLMChain(prompt=extractor_prompt, llm=llm)
 
@@ -236,17 +229,16 @@ def generate_vlm_caption(image: Image.Image, is_icon: bool):
 # ==============================================================================
 # PIPELINE EKSEKUSI UTAMA EVALUASI TUNGGAL BERBASIS LLM
 # ==============================================================================
-def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE_ADHOC):
+def run_single_evaluation(file_path: str = HTML_FILE_PATH):
     print("=" * 80)
     print("EVALUASI KASUS TUNGGAL WCAG SC 1.1.1 (EKSTRAKTOR BERBASIS PROMPT LLM)")
     print("=" * 80)
     print(f"Target File : {file_path}")
-    print(f"Mode Ad-hoc : {'AKTIF (Modifikasi Prompt Ad-hoc)' if use_adhoc else 'NON-AKTIF'}")
     print(f"Device VLM  : {device}")
 
     # Inisialisasi objek hasil evaluasi
     result = {
-        "prompt_type": None,
+        "prompt_type": "Base LLM Prompt",
         "ext_status": None,
         "img_src": None,
         "alt_text": None,
@@ -280,25 +272,10 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
     for line in html_content.strip().splitlines():
         print(f"  | {line}")
 
-    # Penentuan Petunjuk Khusus / Special Instruction
-    if not use_adhoc:
-        prompt_type = "Base LLM Prompt"
-        special_instruction = ""
-    else:
-        # Sisipan notice khusus berdasarkan konten HTML (Seksi 5 Hlm. 12-13 Artikel)
-        if "background-image" in html_content:
-            prompt_type = "Ad-hoc Prompt (CSS background-image)"
-            special_instruction = "Notice that the image is obtained using the CSS background-image property.\n"
-        elif "<object" in html_content:
-            prompt_type = "Ad-hoc Prompt (Tag <object> aria-labelledby)"
-            special_instruction = "Notice that the image is obtained using the aria-labelledby attribute associating the <object> element with the <span> element.\n"
-        else:
-            prompt_type = "Standard Prompt"
-            special_instruction = ""
+    prompt_type = "Base LLM Prompt"
 
     raw_extractor_output = extractor_chain.run({
-        'html_code': html_content,
-        'special_instruction': special_instruction
+        'html_code': html_content
     })
 
     print("\nRespon Mentah LLM:")
@@ -330,7 +307,6 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
         print("Penjelasan      : Elemen gambar tidak ditemukan oleh Base Prompt karena tidak")
         print("                  menggunakan tag <img> atau <input> standar (misalnya kasus")
         print("                  non-standar CSS background atau tag <object>).")
-        print("                  Aktifkan 'USE_ADHOC = True' untuk menggunakan prompt modifikasi.")
         print("=" * 80)
         result["eval_status"] = "FAILED*"
         return result
@@ -407,14 +383,10 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
 
 
 if __name__ == "__main__":
-    # Penggunaan via Terminal:
-    # python evaluate_sc111_single.py testcases/sc111/selected/8c29bcb24ac0f448846a2ffdad4c9693d5aef8c6.html --adhoc
     target_path = HTML_FILE_PATH
-    adhoc_flag = USE_ADHOC
 
     if len(sys.argv) > 1:
         target_path = sys.argv[1]
-    if "--adhoc" in sys.argv:
-        adhoc_flag = True
 
-    run_single_evaluation(file_path=target_path, use_adhoc=adhoc_flag)
+    run_single_evaluation(file_path=target_path)
+

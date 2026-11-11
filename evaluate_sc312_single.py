@@ -6,7 +6,7 @@ Berdasarkan Metodologi Artikel:
 
 Karakteristik Skrip:
 1. Mengevaluasi 1 berkas kasus uji HTML secara mandiri dengan alur step-by-step yang transparan.
-2. Menggunakan ChatOpenAI(model="gpt-5.6-sol", temperature=0) via openai_patch (PatchedChatOpenAI).
+2. Menggunakan ChatOpenAI(model="gpt-4-0613", temperature=0) via openai_patch (PatchedChatOpenAI).
 3. Tahap 1: Ekstraksi dan evaluasi konsistensi tag bahasa teks HTML oleh LLM via Base Prompt (Fig. 4).
 4. Tahap 2: Menampilkan keputusan akhir: PASSED, FAILED, atau FAILED*.
 """
@@ -32,27 +32,12 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 # KONFIGURASI EVALUASI KASUS TUNGGAL
 # ==============================================================================
 # 1. Path berkas HTML kasus uji yang ingin dievaluasi (default)
-HTML_FILE_PATH = "testcases/sc312/selected/ec40c0a032b11cabc03d71b6884ab9b85ee160ad.html"
-
-# 2. Mode Ad-hoc:
-#    - Di paper Halaman 13 dinyatakan SC 3.1.2 tidak memerlukan modifikasi ad-hoc prompt khusus.
-USE_ADHOC = False
+HTML_FILE_PATH = os.path.join(BASE_DIR, "testcases/sc312/selected/ec40c0a032b11cabc03d71b6884ab9b85ee160ad.html").replace("\\", "/")
 
 
 # ==============================================================================
 # TEMPLATE PROMPT LLM GLOBAL (Sesuai Seksi 3.3.3 Hlm. 8-9 & Fig. 4 Artikel Ilmiah)
 # ==============================================================================
-# LANGUAGE_CHECK_TEMPLATE = """Based on the following HTML code, generate a JSON object representing the language identification of each text and if that identification is correct or not:
-
-# ```{html_code}```
-
-# Guidelines:
-# 1. Evaluate each text passage within its scope (for mixed-language elements, evaluate each text segment).
-# 2. Bilingual homographs (phrases valid or meaningful in multiple languages) are correct for either language.
-
-# Don't include any further explanation, just the JSON object
-# """
-
 LANGUAGE_CHECK_TEMPLATE = """Based on the following HTML code, generate a JSON object representing the language identification of each text and if that identification is correct or not:
 
 ```{html_code}```
@@ -146,7 +131,7 @@ def parse_language_eval_json(raw_output: str):
 LANGUAGE_EVAL_CHAIN = None
 
 def init_language_eval_chain():
-    """Memuat rantai LLM ChatOpenAI (gpt-5.6-sol via openai_patch) jika belum dimuat."""
+    """Memuat rantai LLM ChatOpenAI (gpt-4-0613 via openai_patch) jika belum dimuat."""
     global LANGUAGE_EVAL_CHAIN
 
     if LANGUAGE_EVAL_CHAIN is None:
@@ -154,7 +139,7 @@ def init_language_eval_chain():
         if not openai_key:
             raise ValueError("Kunci API tidak ditemukan! Harap sediakan OPENAI_API_KEY di .env.")
 
-        model_name = "gpt-5.6-sol"
+        model_name = "gpt-4-0613"
         print("\n[INISIALISASI LLM OPENAI VIA LANGCHAIN]")
         print("-" * 80)
         print(f"Menghubungkan ChatOpenAI {model_name} (temperature=0)...")
@@ -172,7 +157,7 @@ def init_language_eval_chain():
 # ==============================================================================
 # PIPELINE EKSEKUSI UTAMA EVALUASI TUNGGAL SC 3.1.2
 # ==============================================================================
-def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE_ADHOC):
+def run_single_evaluation(file_path: str = HTML_FILE_PATH):
     """
     Menjalankan evaluasi kasus tunggal untuk WCAG SC 3.1.2.
     Mengembalikan dictionary hasil evaluasi yang kompatibel dengan evaluate.py.
@@ -181,10 +166,9 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
     print("EVALUASI KASUS TUNGGAL WCAG SC 3.1.2 (LANGUAGE OF PARTS BERBASIS LLM)")
     print("=" * 80)
     print(f"Target File : {file_path}")
-    print(f"Mode Ad-hoc : {'AKTIF' if use_adhoc else 'NON-AKTIF'}")
 
     result = {
-        "prompt_type": "Ad-hoc Prompt" if use_adhoc else "Base LLM Prompt",
+        "prompt_type": "Base LLM Prompt",
         "ext_status": None,
         "items": [],
         "score": None,
@@ -200,7 +184,7 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
     with open(file_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
-    # 2. Inisialisasi Rantai LLM LangChain (ChatOpenAI gpt-5.6-sol via openai_patch)
+    # 2. Inisialisasi Rantai LLM LangChain (ChatOpenAI gpt-4-0613 via openai_patch)
     chain = init_language_eval_chain()
 
     # --------------------------------------------------------------------------
@@ -276,15 +260,10 @@ def run_single_evaluation(file_path: str = HTML_FILE_PATH, use_adhoc: bool = USE
 
 
 if __name__ == "__main__":
-    # Penggunaan via Terminal:
-    # python evaluate_sc312_single.py testcases/sc312/selected/ec40c0a032b11cabc03d71b6884ab9b85ee160ad.html
-    # python evaluate_sc312_single.py testcases/sc312/selected/ec40c0a032b11cabc03d71b6884ab9b85ee160ad.html --adhoc
     target_path = HTML_FILE_PATH
-    adhoc_flag = USE_ADHOC
 
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         target_path = sys.argv[1]
-    if "--adhoc" in sys.argv:
-        adhoc_flag = True
 
-    run_single_evaluation(file_path=target_path, use_adhoc=adhoc_flag)
+    run_single_evaluation(file_path=target_path)
+
