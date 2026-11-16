@@ -11,7 +11,7 @@ Dan Repositori & Model Resmi Penulis:
 
 Karakteristik Skrip:
 1. Mengevaluasi 1 berkas kasus uji HTML secara mandiri dengan alur step-by-step yang transparan.
-2. Menggunakan OpenAI(model="gpt-5.6-terra", temperature=0) via openai_patch (pengganti resmi gpt-3.5-turbo-instruct yang telah dideprecate).
+2. Menggunakan OpenAI(model="gpt-3.5-turbo-instruct", temperature=0) via openai_patch (pengganti resmi gpt-3.5 yang telah dideprecate).
 3. Tahap 1: Ekstraksi gambar dan teks alternatif HTML dilakukan oleh LLM melalui Base Prompt standar.
 4. Tahap 2: Ekstraksi deskripsi visual via VLM (BLIP / Pix2Struct) dan Penilaian Kemiripan Semantik via LangChain.
 5. Tahap 3: Menampilkan keputusan akhir: PASSED, FAILED, atau FAILED*.
@@ -107,7 +107,7 @@ def init_llm_chains():
     global EXTRACTOR_CHAIN, SIM_CHAIN
 
     if EXTRACTOR_CHAIN is None or SIM_CHAIN is None:
-        model_name = "gpt-5.6-terra"
+        model_name = "gpt-3.5-turbo-instruct"
         print("\n[INISIALISASI LLM OPENAI VIA LANGCHAIN]")
         print("-" * 80)
         print(f"Menghubungkan OpenAI {model_name} (temperature=0)...")
