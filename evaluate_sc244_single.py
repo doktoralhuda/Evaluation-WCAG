@@ -7,7 +7,7 @@ Dan Repositori Gist Resmi Penulis (Footnote 23: https://gist.github.com/juananpe
 
 Karakteristik Skrip:
 1. Mengevaluasi 1 berkas kasus uji HTML secara mandiri dengan alur step-by-step yang transparan.
-2. Menggunakan ChatAnthropic(model="claude-sonnet-4-5-20250929", temperature=0) sesuai kode Gist resmi artikel (Footnote 23).
+2. Menggunakan ChatAnthropic(model="claude-sonnet-4-5-20250929", temperature=0) via anthropic_patch (pengganti resmi claude-2 yang telah dideprecate) sesuai kode Gist resmi artikel (Footnote 23).
 3. Tahap 1: Ekstraksi tautan HTML dilakukan oleh LLM melalui Base Prompt standar.
 4. Tahap 2: Peringkasan & Penilaian Kesesuaian Semantik via LangChain Agent yang menjelajahi halaman web sasaran secara otonom.
 5. Tahap 3: Menampilkan keputusan akhir: PASSED, FAILED, atau FAILED*.

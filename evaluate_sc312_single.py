@@ -6,7 +6,7 @@ Berdasarkan Metodologi Artikel:
 
 Karakteristik Skrip:
 1. Mengevaluasi 1 berkas kasus uji HTML secara mandiri dengan alur step-by-step yang transparan.
-2. Menggunakan ChatOpenAI(model="gpt-4-0613", temperature=0) via openai_patch (PatchedChatOpenAI).
+2. Menggunakan ChatOpenAI(model="gpt-4-0613", temperature=0) via openai_patch (pengganti resmi gpt-4 yang telah dideprecate).
 3. Tahap 1: Ekstraksi dan evaluasi konsistensi tag bahasa teks HTML oleh LLM via Base Prompt (Fig. 4).
 4. Tahap 2: Menampilkan keputusan akhir: PASSED, FAILED, atau FAILED*.
 """
